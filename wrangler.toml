@@ -1,0 +1,38 @@
+name = "lumino-collaborative-server"
+main = "dist/cloudflareWorker.js"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+type = "module"
+
+# Build configuration for TypeScript
+[build]
+command = "npm run build"
+
+# Environment variables
+[vars]
+ENVIRONMENT = "production"
+
+# KV namespace for persistence (optional)
+# [[kv_namespaces]]
+# binding = "LUMINO_KV"
+# id = "your-kv-namespace-id"
+
+# Routes configuration
+[[routes]]
+pattern = "lumino-02.afeu20u3jfocas.dpdns.org/*"
+zone_name = "afeu20u3jfocas.dpdns.org"
+
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = false
+persist = true
+head_sampling_rate = 1

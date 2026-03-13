@@ -1,0 +1,6 @@
+name = "minimal-websocket-test"
+main = "src/minimalWorker.ts"
+compatibility_date = "2025-01-01"
+
+[build]
+command = "echo 'No build needed'"

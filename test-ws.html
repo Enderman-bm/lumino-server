@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Test</title>
+</head>
+<body>
+    <h1>WebSocket Test</h1>
+    <div id="status">Connecting...</div>
+    <div id="log"></div>
+    <script>
+        const ws = new WebSocket('wss://lumino-02.afeu20u3jfocas.dpdns.org/ws');
+        const statusDiv = document.getElementById('status');
+        const logDiv = document.getElementById('log');
+
+        function log(message) {
+            const p = document.createElement('p');
+            p.textContent = message;
+            logDiv.appendChild(p);
+        }
+
+        ws.onopen = function() {
+            statusDiv.textContent = 'Connected!';
+            log('Connected to WebSocket');
+            
+            // Send auth message
+            const authMessage = {
+                type: 'auth',
+                username: 'TestUser'
+            };
+            ws.send(JSON.stringify(authMessage));
+            log('Sent auth message: ' + JSON.stringify(authMessage));
+        };
+
+        ws.onmessage = function(event) {
+            log('Received: ' + event.data);
+            const data = JSON.parse(event.data);
+            if (data.type === 'authSuccess') {
+                log('Auth successful! User ID: ' + data.userId);
+            } else if (data.type === 'authError') {
+                log('Auth failed: ' + data.error);
+            } else if (data.type === 'welcome') {
+                log('Welcome message: ' + data.message);
+            }
+        };
+
+        ws.onerror = function(error) {
+            statusDiv.textContent = 'Error!';
+            log('WebSocket error: ' + error);
+        };
+
+        ws.onclose = function() {
+            statusDiv.textContent = 'Disconnected';
+            log('WebSocket closed');
+        };
+    </script>
+</body>
+</html>
