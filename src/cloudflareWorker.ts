@@ -143,9 +143,19 @@ async function handleWebSocketRequest(request: Request, env: Env): Promise<Respo
 
   console.log(`[Worker] Upgrading WebSocket for room ${roomId}`);
 
-  // 直接转发到 RoomDurableObject 处理 WebSocket 升级
-  const roomDurableObject = getRoomDurableObject(env, roomId);
-  return roomDurableObject.fetch(request);
+  try {
+    // 直接转发到 RoomDurableObject 处理 WebSocket 升级
+    const roomDurableObject = getRoomDurableObject(env, roomId);
+    const response = await roomDurableObject.fetch(request);
+    console.log(`[Worker] RoomDurableObject response status: ${response.status}`);
+    return response;
+  } catch (error) {
+    console.error('[Worker] Error calling RoomDurableObject:', error);
+    return new Response(JSON.stringify({ error: 'Internal server error', details: String(error) }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
 }
 
 /**

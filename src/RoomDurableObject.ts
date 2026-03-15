@@ -63,9 +63,44 @@ export class RoomDurableObject {
    * 处理 WebSocket 升级
    */
   private async handleWebSocketUpgrade(request: Request): Promise<Response> {
+    console.log('[RoomDurableObject] handleWebSocketUpgrade called, roomState:', this.roomState);
+    
     const upgradeHeader = request.headers.get('Upgrade');
     if (upgradeHeader !== 'websocket') {
       return new Response('Expected Upgrade: websocket', { status: 426 });
+    }
+
+    // Check if room exists
+    if (!this.roomState) {
+      console.log('[RoomDurableObject] Room does not exist, creating new room');
+      // Auto-create room if it doesn't exist
+      this.roomState = {
+        id: this.ctx.id.toString(),
+        inviteCode: this.ctx.id.toString(),
+        hostId: '',
+        name: 'Auto-created room',
+        createdAt: Date.now(),
+        users: new Map(),
+        maxUsers: 10,
+        projectState: {
+          midiData: null,
+          viewState: {
+            scroll_x: 0,
+            scroll_y: 0,
+            zoom_x: 0.1,
+            zoom_y: 20,
+            total_ticks: 1920 * 4 * 100,
+            key_count: 128,
+            visible_key_count: 128,
+            ppq: 1920,
+            keyboard_width: 120,
+            snap_precision: 960,
+            default_note_length: 960,
+          },
+          lastModified: Date.now(),
+          modifiedBy: null,
+        },
+      };
     }
 
     const pair = new WebSocketPair();
