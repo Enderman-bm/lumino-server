@@ -66,7 +66,11 @@ function sendToUser(ws: ExtendedWebSocket, message: ServerMessage): void {
   if (ws.readyState === WebSocket.OPEN) {
     // 开发模式：记录发送的消息
     logEvent('SEND', ws.id, ws.userId, message);
-    ws.send(JSON.stringify(message));
+    const messageStr = JSON.stringify(message);
+    console.log(`[${new Date().toISOString()}] [DEBUG] SENDING to ${ws.id}: ${messageStr.substring(0, 500)}`);
+    ws.send(messageStr);
+  } else {
+    console.log(`[${new Date().toISOString()}] [ERROR] Cannot send to ${ws.id}: readyState=${ws.readyState}`);
   }
 }
 
@@ -74,12 +78,17 @@ function sendToUser(ws: ExtendedWebSocket, message: ServerMessage): void {
  * 处理客户端消息
  */
 function handleMessage(ws: ExtendedWebSocket, data: string): void {
+  console.log(`[${new Date().toISOString()}] [DEBUG] RAW MESSAGE from ${ws.id}: ${data.substring(0, 500)}`);
+  
   const message = safeJsonParse<ClientMessage>(data);
   
   if (!message || !message.type) {
+    console.log(`[${new Date().toISOString()}] [ERROR] Invalid message format from ${ws.id}`);
     sendToUser(ws, { type: 'error', error: '无效的消息格式' });
     return;
   }
+  
+  console.log(`[${new Date().toISOString()}] [DEBUG] Parsed message type: ${message.type} from ${ws.id}`);
   
   // 开发模式：记录接收到的消息
   logEvent('RECV', ws.id, ws.userId, message);
@@ -122,14 +131,18 @@ function handleMessage(ws: ExtendedWebSocket, data: string): void {
       }
 
       case 'joinRoom': {
+        console.log(`[${new Date().toISOString()}] [DEBUG] Processing joinRoom for user ${user?.id}, inviteCode: ${message.inviteCode}`);
         if (!user) {
+          console.log(`[${new Date().toISOString()}] [ERROR] joinRoom failed: user not authenticated`);
           sendToUser(ws, { type: 'roomError', error: '请先登录' });
           return;
         }
         const response = messageHandler.handleJoinRoom(ws, user, message.inviteCode);
+        console.log(`[${new Date().toISOString()}] [DEBUG] joinRoom response: ${response.type}`);
         sendToUser(ws, response);
         
         if (response.type === 'roomJoined') {
+          console.log(`[${new Date().toISOString()}] [INFO] User ${user.username} (${user.id}) joined room successfully`);
           // 通知房间内其他用户有新用户加入
           const room = roomManager.getRoomByUser(user.id);
           if (room) {
@@ -144,6 +157,8 @@ function handleMessage(ws: ExtendedWebSocket, data: string): void {
             };
             broadcastToRoom(room.id, joinMessage, user.id);
           }
+        } else if (response.type === 'roomError') {
+          console.log(`[${new Date().toISOString()}] [ERROR] joinRoom failed: ${response.error}`);
         }
         break;
       }
@@ -277,6 +292,22 @@ function handleMessage(ws: ExtendedWebSocket, data: string): void {
 
       case 'ping': {
         messageHandler.handlePing(ws, message.timestamp);
+        break;
+      }
+
+      case 'subscribeLogs': {
+        // 标记为日志客户端
+        (ws as any).isLogClient = true;
+        
+        // 发送历史日志
+        const { logBuffer } = require('./index');
+        const historyMessage = {
+          type: 'logHistory',
+          logs: logBuffer.slice(-100), // 发送最近100条
+        };
+        sendToUser(ws, historyMessage as any);
+        
+        console.log(`[${new Date().toISOString()}] [INFO] Log client subscribed: ${ws.id}`);
         break;
       }
 

@@ -12,15 +12,12 @@ command = "npm run build"
 [vars]
 ENVIRONMENT = "production"
 
-# KV namespace for persistence (optional)
-# [[kv_namespaces]]
-# binding = "LUMINO_KV"
-# id = "your-kv-namespace-id"
+# KV namespace for persistence
+[[kv_namespaces]]
+binding = "LUMINO_KV"
+id = "a85a34f27fcf4bf4b86efa21a534c072"
 
-# Routes configuration
-[[routes]]
-pattern = "lumino-02.afeu20u3jfocas.dpdns.org/*"
-zone_name = "afeu20u3jfocas.dpdns.org"
+# Routes configuration (using default workers.dev domain)
 
 [observability]
 enabled = false
@@ -36,3 +33,18 @@ invocation_logs = true
 enabled = false
 persist = true
 head_sampling_rate = 1
+
+# Durable Object binding for log broadcasting
+[[durable_objects.bindings]]
+name = "LOG_DURABLE_OBJECT"
+class_name = "LogDurableObject"
+
+# Durable Object binding for room management
+[[durable_objects.bindings]]
+name = "ROOM_DURABLE_OBJECT"
+class_name = "RoomDurableObject"
+
+# Durable Object migration for free plan (using SQLite storage)
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["LogDurableObject", "RoomDurableObject"]

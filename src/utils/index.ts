@@ -54,7 +54,7 @@ export function now(): number {
 /**
  * 格式化日志
  */
-export function log(level: 'info' | 'warn' | 'error', message: string, ...args: unknown[]): void {
+export function log(level: 'debug' | 'info' | 'warn' | 'error', message: string, ...args: unknown[]): void {
   const timestamp = new Date().toISOString();
   const prefix = `[${timestamp}] [${level.toUpperCase()}]`;
   
@@ -65,8 +65,21 @@ export function log(level: 'info' | 'warn' | 'error', message: string, ...args: 
     case 'warn':
       console.warn(prefix, message, ...args);
       break;
+    case 'debug':
+      console.debug(prefix, message, ...args);
+      break;
     default:
       console.log(prefix, message, ...args);
+  }
+  
+  // 广播到日志客户端（使用动态导入避免循环依赖）
+  try {
+    const indexModule = require('../index');
+    if (indexModule.broadcastLog) {
+      indexModule.broadcastLog(level, message, args.length > 0 ? args : undefined);
+    }
+  } catch (e) {
+    // 忽略错误，可能是在启动阶段
   }
 }
 

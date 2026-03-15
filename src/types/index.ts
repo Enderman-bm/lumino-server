@@ -120,7 +120,8 @@ export type ClientMessage =
   | { type: 'midiEventBatch'; events: MidiEvent[] }
   | { type: 'projectUpdate'; update: ProjectUpdate }
   | { type: 'requestSync' }
-  | { type: 'ping'; timestamp: number };
+  | { type: 'ping'; timestamp: number }
+  | { type: 'subscribeLogs' };
 
 export type ServerMessage =
   | { type: 'authSuccess'; userId: string; inviteCode: string }
@@ -137,6 +138,8 @@ export type ServerMessage =
   | { type: 'projectStateUpdate'; userId: string; update: ProjectUpdate }
   | { type: 'fullSync'; projectState: ProjectState; users: UserInfo[] }
   | { type: 'pong'; timestamp: number; serverTime: number }
+  | { type: 'log'; timestamp: string; level: string; message: string; data?: any }
+  | { type: 'logHistory'; logs: Array<{ timestamp: string; level: string; message: string; data?: any }> }
   | { type: 'error'; error: string };
 
 // ==================== 批量操作 ====================
@@ -185,4 +188,5 @@ export interface ExtendedWebSocket extends WebSocket {
   roomId: string | null;
   isAlive: boolean;
   lastPing: number;
+  isLogClient?: boolean;
 }

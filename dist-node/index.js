@@ -1,109 +1,102 @@
+"use strict";
 /**
  * Lumino 协作服务器 - 主入口
  */
-
-import { createServer } from 'http';
-import { networkInterfaces } from 'os';
-import { createWebSocketServer } from './websocketServer';
-import { roomManager } from './roomManager';
-import { userManager } from './userManager';
-import { log } from './utils';
-
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.maxLogBufferSize = exports.logBuffer = void 0;
+exports.broadcastLog = broadcastLog;
+const http_1 = require("http");
+const os_1 = require("os");
+const websocketServer_1 = require("./websocketServer");
+const roomManager_1 = require("./roomManager");
+const userManager_1 = require("./userManager");
+const utils_1 = require("./utils");
 // 配置
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 const HOST = process.env.HOST || '0.0.0.0';
-
 // 检查是否在开发模式
 const isDevMode = process.env.NODE_ENV === 'development' || process.env.DEV_MODE === 'true' || process.argv.includes('--dev');
 if (isDevMode) {
-  console.log('\n🚀 开发模式已启用 - 所有WebSocket事件将被记录\n');
+    console.log('\n🚀 开发模式已启用 - 所有WebSocket事件将被记录\n');
 }
-
 // 创建HTTP服务器
-const httpServer = createServer((req, res) => {
-  // 设置CORS头
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') {
-    res.writeHead(200);
-    res.end();
-    return;
-  }
-
-  // 健康检查端点
-  if (req.url === '/health' && req.method === 'GET') {
-    // 获取服务器IP
-    const interfaces = networkInterfaces();
-    let serverIp = 'localhost';
-    for (const name of Object.keys(interfaces)) {
-      const iface = interfaces[name];
-      if (!iface) continue;
-      for (const config of iface) {
-        if (config.family === 'IPv4' && !config.internal) {
-          serverIp = config.address;
-          break;
-        }
-      }
+const httpServer = (0, http_1.createServer)((req, res) => {
+    // 设置CORS头
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    if (req.method === 'OPTIONS') {
+        res.writeHead(200);
+        res.end();
+        return;
     }
-
-    const stats = {
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      serverIp: serverIp,
-      rooms: roomManager.getStats(),
-      users: userManager.getStats(),
-    };
-    
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(stats));
-    return;
-  }
-
-  // 服务器信息端点
-  if (req.url === '/info' && req.method === 'GET') {
-    const info = {
-      name: 'Lumino Collaborative Server',
-      version: '1.0.0',
-      websocket: {
-        path: '/ws',
-        protocol: 'json',
-      },
-      features: [
-        'real-time-collaboration',
-        'mouse-tracking',
-        'note-batch-operations',
-        'midi-event-sync',
-        'project-state-sync',
-      ],
-    };
-    
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(info));
-    return;
-  }
-
-  // 监控WebUI端点
-  if (req.url === '/monitor' && req.method === 'GET') {
-    const stats = roomManager.getStats();
-    const userStats = userManager.getStats();
-    
-    // 获取服务器IP
-    const interfaces = networkInterfaces();
-    let serverIp = 'localhost';
-    for (const name of Object.keys(interfaces)) {
-      const iface = interfaces[name];
-      if (!iface) continue;
-      for (const config of iface) {
-        if (config.family === 'IPv4' && !config.internal) {
-          serverIp = config.address;
-          break;
+    // 健康检查端点
+    if (req.url === '/health' && req.method === 'GET') {
+        // 获取服务器IP
+        const interfaces = (0, os_1.networkInterfaces)();
+        let serverIp = 'localhost';
+        for (const name of Object.keys(interfaces)) {
+            const iface = interfaces[name];
+            if (!iface)
+                continue;
+            for (const config of iface) {
+                if (config.family === 'IPv4' && !config.internal) {
+                    serverIp = config.address;
+                    break;
+                }
+            }
         }
-      }
+        const stats = {
+            status: 'ok',
+            timestamp: new Date().toISOString(),
+            serverIp: serverIp,
+            rooms: roomManager_1.roomManager.getStats(),
+            users: userManager_1.userManager.getStats(),
+        };
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(stats));
+        return;
     }
-
-    const html = `<!DOCTYPE html>
+    // 服务器信息端点
+    if (req.url === '/info' && req.method === 'GET') {
+        const info = {
+            name: 'Lumino Collaborative Server',
+            version: '1.0.0',
+            websocket: {
+                path: '/ws',
+                protocol: 'json',
+            },
+            features: [
+                'real-time-collaboration',
+                'mouse-tracking',
+                'note-batch-operations',
+                'midi-event-sync',
+                'project-state-sync',
+            ],
+        };
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(info));
+        return;
+    }
+    // 监控WebUI端点
+    if (req.url === '/monitor' && req.method === 'GET') {
+        const stats = roomManager_1.roomManager.getStats();
+        const userStats = userManager_1.userManager.getStats();
+        // 获取服务器IP
+        const interfaces = (0, os_1.networkInterfaces)();
+        let serverIp = 'localhost';
+        for (const name of Object.keys(interfaces)) {
+            const iface = interfaces[name];
+            if (!iface)
+                continue;
+            for (const config of iface) {
+                if (config.family === 'IPv4' && !config.internal) {
+                    serverIp = config.address;
+                    break;
+                }
+            }
+        }
+        const html = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -314,18 +307,16 @@ const httpServer = createServer((req, res) => {
     </script>
 </body>
 </html>`;
-
-    res.writeHead(200, { 
-      'Content-Type': 'text/html',
-      'Cache-Control': 'no-cache'
-    });
-    res.end(html);
-    return;
-  }
-
-  // 日志查看WebUI端点
-  if (req.url === '/logs' && req.method === 'GET') {
-    const html = `<!DOCTYPE html>
+        res.writeHead(200, {
+            'Content-Type': 'text/html',
+            'Cache-Control': 'no-cache'
+        });
+        res.end(html);
+        return;
+    }
+    // 日志查看WebUI端点
+    if (req.url === '/logs' && req.method === 'GET') {
+        const html = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -605,110 +596,92 @@ const httpServer = createServer((req, res) => {
     </script>
 </body>
 </html>`;
-    
-    res.writeHead(200, { 
-      'Content-Type': 'text/html',
-      'Cache-Control': 'no-cache'
-    });
-    res.end(html);
-    return;
-  }
-
-  // 404
-  res.writeHead(404, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ error: 'Not Found' }));
+        res.writeHead(200, {
+            'Content-Type': 'text/html',
+            'Cache-Control': 'no-cache'
+        });
+        res.end(html);
+        return;
+    }
+    // 404
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Not Found' }));
 });
-
 // 日志存储（最多保存1000条）
-export const logBuffer: { timestamp: string; level: string; message: string; data?: any }[] = [];
-export const maxLogBufferSize = 1000;
-
+exports.logBuffer = [];
+exports.maxLogBufferSize = 1000;
 // 广播日志给所有连接的日志客户端
-export function broadcastLog(level: string, message: string, data?: any) {
-  const logEntry = {
-    timestamp: new Date().toISOString(),
-    level,
-    message,
-    data,
-  };
-  
-  // 添加到缓冲区
-  logBuffer.push(logEntry);
-  if (logBuffer.length > maxLogBufferSize) {
-    logBuffer.shift();
-  }
-  
-  // 广播给所有日志客户端
-  const logMessage = JSON.stringify({
-    type: 'log',
-    ...logEntry,
-  });
-  
-  // 通过全局 wss 广播
-  if ((global as any).wss) {
-    (global as any).wss.clients.forEach((client: any) => {
-      if (client.readyState === 1 && client.isLogClient) {
-        client.send(logMessage);
-      }
+function broadcastLog(level, message, data) {
+    const logEntry = {
+        timestamp: new Date().toISOString(),
+        level,
+        message,
+        data,
+    };
+    // 添加到缓冲区
+    exports.logBuffer.push(logEntry);
+    if (exports.logBuffer.length > exports.maxLogBufferSize) {
+        exports.logBuffer.shift();
+    }
+    // 广播给所有日志客户端
+    const logMessage = JSON.stringify({
+        type: 'log',
+        ...logEntry,
     });
-  }
+    // 通过全局 wss 广播
+    if (global.wss) {
+        global.wss.clients.forEach((client) => {
+            if (client.readyState === 1 && client.isLogClient) {
+                client.send(logMessage);
+            }
+        });
+    }
 }
-
 // 创建WebSocket服务器
-const wss = createWebSocketServer(httpServer);
-(global as any).wss = wss;
-
+const wss = (0, websocketServer_1.createWebSocketServer)(httpServer);
+global.wss = wss;
 // 启动服务器
 httpServer.listen(PORT, HOST, () => {
-  log('info', `=================================`);
-  log('info', `Lumino 协作服务器已启动`);
-  if (isDevMode) {
-    log('info', `模式: 开发模式 (事件日志已启用)`);
-  }
-  log('info', `HTTP: http://${HOST}:${PORT}`);
-  log('info', `WebSocket: ws://${HOST}:${PORT}/ws`);
-  log('info', `=================================`);
+    (0, utils_1.log)('info', `=================================`);
+    (0, utils_1.log)('info', `Lumino 协作服务器已启动`);
+    if (isDevMode) {
+        (0, utils_1.log)('info', `模式: 开发模式 (事件日志已启用)`);
+    }
+    (0, utils_1.log)('info', `HTTP: http://${HOST}:${PORT}`);
+    (0, utils_1.log)('info', `WebSocket: ws://${HOST}:${PORT}/ws`);
+    (0, utils_1.log)('info', `=================================`);
 });
-
 // 优雅关闭
 process.on('SIGTERM', () => {
-  log('info', '收到SIGTERM信号，正在关闭服务器...');
-  
-  wss.close(() => {
-    log('info', 'WebSocket服务器已关闭');
-  });
-  
-  httpServer.close(() => {
-    log('info', 'HTTP服务器已关闭');
-    process.exit(0);
-  });
+    (0, utils_1.log)('info', '收到SIGTERM信号，正在关闭服务器...');
+    wss.close(() => {
+        (0, utils_1.log)('info', 'WebSocket服务器已关闭');
+    });
+    httpServer.close(() => {
+        (0, utils_1.log)('info', 'HTTP服务器已关闭');
+        process.exit(0);
+    });
 });
-
 process.on('SIGINT', () => {
-  log('info', '收到SIGINT信号，正在关闭服务器...');
-  
-  wss.close(() => {
-    log('info', 'WebSocket服务器已关闭');
-  });
-  
-  httpServer.close(() => {
-    log('info', 'HTTP服务器已关闭');
-    process.exit(0);
-  });
+    (0, utils_1.log)('info', '收到SIGINT信号，正在关闭服务器...');
+    wss.close(() => {
+        (0, utils_1.log)('info', 'WebSocket服务器已关闭');
+    });
+    httpServer.close(() => {
+        (0, utils_1.log)('info', 'HTTP服务器已关闭');
+        process.exit(0);
+    });
 });
-
 // 定期清理任务（每30分钟）
 setInterval(() => {
-  log('info', '执行定期清理任务...');
-  roomManager.cleanupInactiveRooms(24 * 60 * 60 * 1000); // 24小时
-  userManager.cleanupInactiveUsers(60 * 60 * 1000); // 1小时
+    (0, utils_1.log)('info', '执行定期清理任务...');
+    roomManager_1.roomManager.cleanupInactiveRooms(24 * 60 * 60 * 1000); // 24小时
+    userManager_1.userManager.cleanupInactiveUsers(60 * 60 * 1000); // 1小时
 }, 30 * 60 * 1000);
-
 // 未捕获的异常处理
 process.on('uncaughtException', (error) => {
-  log('error', '未捕获的异常:', error);
+    (0, utils_1.log)('error', '未捕获的异常:', error);
 });
-
 process.on('unhandledRejection', (reason, promise) => {
-  log('error', '未处理的Promise拒绝:', reason);
+    (0, utils_1.log)('error', '未处理的Promise拒绝:', reason);
 });

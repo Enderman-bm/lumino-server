@@ -25,6 +25,57 @@ export class RoomManager {
   private inviteCodeToRoomId: Map<string, string> = new Map();
   private userToRoom: Map<string, string> = new Map();
   private readonly maxUsersPerRoom = 10;
+  private kv: KVNamespace | null = null;
+
+  constructor(kv?: KVNamespace) {
+    this.kv = kv || null;
+  }
+
+  async loadFromKV(): Promise<void> {
+    if (!this.kv) return;
+    
+    try {
+      const roomsData = await this.kv.get('rooms', 'json');
+      if (roomsData && Array.isArray(roomsData)) {
+        // 恢复房间数据
+        for (const room of roomsData) {
+          // 重新创建 Map 对象
+          const usersMap = new Map<string, any>();
+          if (room.users) {
+            for (const [userId, user] of Object.entries(room.users)) {
+              usersMap.set(userId, user);
+            }
+          }
+          room.users = usersMap;
+          
+          this.rooms.set(room.id, room);
+          this.inviteCodeToRoomId.set(room.inviteCode, room.id);
+          for (const [userId, user] of Object.entries(room.users || {})) {
+            this.userToRoom.set(userId, room.id);
+          }
+        }
+        console.log(`Loaded ${roomsData.length} rooms from KV`);
+      }
+    } catch (error) {
+      console.error('Failed to load from KV:', error);
+    }
+  }
+
+  async saveToKV(): Promise<void> {
+    if (!this.kv) return;
+    
+    try {
+      // 转换 Map 为普通对象以便序列化
+      const roomsData = Array.from(this.rooms.values()).map(room => ({
+        ...room,
+        users: Object.fromEntries(room.users),
+      }));
+      await this.kv.put('rooms', JSON.stringify(roomsData));
+      console.log(`Saved ${roomsData.length} rooms to KV`);
+    } catch (error) {
+      console.error('Failed to save to KV:', error);
+    }
+  }
 
   /**
    * 创建新房间
@@ -56,6 +107,9 @@ export class RoomManager {
     this.rooms.set(roomId, room);
     this.inviteCodeToRoomId.set(inviteCode, roomId);
     this.userToRoom.set(hostUser.id, roomId);
+
+    // 保存到 KV
+    this.saveToKV().catch(console.error);
 
     log('info', `房间创建成功: ${roomId}, 邀请码: ${inviteCode}, 房主: ${hostUser.username}`);
     return room;
@@ -89,6 +143,9 @@ export class RoomManager {
     room.users.set(user.id, user);
     user.roomId = roomId;
     this.userToRoom.set(user.id, roomId);
+
+    // 保存到 KV
+    this.saveToKV().catch(console.error);
 
     log('info', `用户 ${user.username} 加入房间 ${roomId}`);
     return room;
@@ -227,11 +284,13 @@ export class RoomManager {
   getStats(): { totalRooms: number; totalUsers: number } {
     let totalUsers = 0;
     for (const room of this.rooms.values()) {
-      totalUsers += room.users.size;
+      if (room.users && typeof room.users.size === 'number') {
+        totalUsers += room.users.size;
+      }
     }
     return {
       totalRooms: this.rooms.size,
-      totalUsers,
+      totalUsers: totalUsers,
     };
   }
 
