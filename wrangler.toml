@@ -2,7 +2,6 @@ name = "lumino-collaborative-server"
 main = "dist/cloudflareWorker.js"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
-type = "module"
 
 # Build configuration for TypeScript
 [build]
@@ -12,12 +11,15 @@ command = "npm run build"
 [vars]
 ENVIRONMENT = "production"
 
+# Routes configuration - 支持 workers.dev 和自定义域名
+[[routes]]
+pattern = "lumino-02.afeu20u3jfocas.dpdns.org"
+custom_domain = true
+
 # KV namespace for persistence
 [[kv_namespaces]]
 binding = "LUMINO_KV"
 id = "a85a34f27fcf4bf4b86efa21a534c072"
-
-# Routes configuration (using default workers.dev domain)
 
 [observability]
 enabled = false
@@ -28,11 +30,6 @@ enabled = true
 head_sampling_rate = 1
 persist = true
 invocation_logs = true
-
-[observability.traces]
-enabled = false
-persist = true
-head_sampling_rate = 1
 
 # Durable Object binding for log broadcasting
 [[durable_objects.bindings]]
