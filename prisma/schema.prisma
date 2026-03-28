@@ -1,0 +1,51 @@
+// Lumino Cloud Storage - Prisma Schema
+// This schema defines users, backups, and file storage
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./lumino.db"
+}
+
+// User model with authentication and storage management
+model User {
+  id           String    @id @default(uuid())
+  username     String    @unique
+  passwordHash String    // 加密后的密码
+  isAdmin      Boolean   @default(false)
+  storageQuota Int       @default(2048) // 默认2GB (单位: MB)
+  usedStorage  Int       @default(0)    // 已使用空间 (单位: MB)
+  mustResetPwd Boolean   @default(true) // 是否需要修改密码 (管理员强制要求)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  lastLogin    DateTime?
+
+  // 关联的备份文件
+  backups      Backup[]
+
+  @@index([username])
+  @@index([isAdmin])
+}
+
+// Backup/File model - 存储用户上传的文件
+model Backup {
+  id          String   @id @default(uuid())
+  userId      String
+  filename    String   // 原始文件名
+  filepath    String   // 存储路径 (相对路径)
+  fileSize    Int      // 文件大小 (字节)
+  fileHash    String?  // 文件哈希 (用于去重和校验)
+  description String?  // 文件描述
+  uploadDate  DateTime @default(now())
+  version     Int      @default(1) // 版本号
+
+  // 关联的用户
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([uploadDate])
+}

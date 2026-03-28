@@ -25,56 +25,72 @@ export class RoomManager {
   private inviteCodeToRoomId: Map<string, string> = new Map();
   private userToRoom: Map<string, string> = new Map();
   private readonly maxUsersPerRoom = 10;
-  private kv: KVNamespace | null = null;
 
-  constructor(kv?: KVNamespace) {
-    this.kv = kv || null;
+  constructor() {}
+
+  /**
+   * 预创建房间（通过 HTTP API 创建，等待第一个用户加入）
+   */
+  preCreateRoom(inviteCode: string, name: string, hostId?: string): Room {
+    const roomId = inviteCode; // 使用 inviteCode 作为 roomId
+
+    const room: Room = {
+      id: roomId,
+      inviteCode,
+      hostId: hostId || '', // 暂时为空，等第一个用户加入时设置
+      name: name || `协作房间 ${inviteCode}`,
+      createdAt: now(),
+      users: new Map(),
+      maxUsers: this.maxUsersPerRoom,
+      projectState: {
+        midiData: null,
+        viewState: { ...defaultViewState },
+        lastModified: now(),
+        modifiedBy: null,
+      },
+    };
+
+    this.rooms.set(roomId, room);
+    this.inviteCodeToRoomId.set(inviteCode, roomId);
+
+    log('info', `房间预创建: ${roomId}, 邀请码: ${inviteCode}`);
+    return room;
   }
 
-  async loadFromKV(): Promise<void> {
-    if (!this.kv) return;
+  /**
+   * 获取或创建房间（用于 WebSocket 连接时）
+   */
+  getOrCreateRoom(inviteCode: string, user: User): Room {
+    // 先尝试获取现有房间
+    let room = this.getRoomByInviteCode(inviteCode);
     
-    try {
-      const roomsData = await this.kv.get('rooms', 'json');
-      if (roomsData && Array.isArray(roomsData)) {
-        // 恢复房间数据
-        for (const room of roomsData) {
-          // 重新创建 Map 对象
-          const usersMap = new Map<string, any>();
-          if (room.users) {
-            for (const [userId, user] of Object.entries(room.users)) {
-              usersMap.set(userId, user);
-            }
-          }
-          room.users = usersMap;
-          
-          this.rooms.set(room.id, room);
-          this.inviteCodeToRoomId.set(room.inviteCode, room.id);
-          for (const [userId, user] of Object.entries(room.users || {})) {
-            this.userToRoom.set(userId, room.id);
-          }
-        }
-        console.log(`Loaded ${roomsData.length} rooms from KV`);
-      }
-    } catch (error) {
-      console.error('Failed to load from KV:', error);
+    if (!room) {
+      // 房间不存在，自动创建
+      room = this.preCreateRoom(inviteCode, `协作房间 ${inviteCode}`);
     }
-  }
 
-  async saveToKV(): Promise<void> {
-    if (!this.kv) return;
-    
-    try {
-      // 转换 Map 为普通对象以便序列化
-      const roomsData = Array.from(this.rooms.values()).map(room => ({
-        ...room,
-        users: Object.fromEntries(room.users),
-      }));
-      await this.kv.put('rooms', JSON.stringify(roomsData));
-      console.log(`Saved ${roomsData.length} rooms to KV`);
-    } catch (error) {
-      console.error('Failed to save to KV:', error);
+    // 如果是第一个用户，设置为房主
+    if (room.users.size === 0) {
+      room.hostId = user.id;
     }
+
+    // 如果用户已在其他房间，先离开
+    if (user.roomId && user.roomId !== room.id) {
+      this.leaveRoom(user);
+    }
+
+    // 检查房间是否已满
+    if (room.users.size >= room.maxUsers) {
+      throw new Error('房间已满');
+    }
+
+    // 添加用户到房间
+    room.users.set(user.id, user);
+    user.roomId = room.id;
+    this.userToRoom.set(user.id, room.id);
+
+    log('info', `用户 ${user.username} 加入房间 ${room.id}`);
+    return room;
   }
 
   /**
@@ -108,9 +124,6 @@ export class RoomManager {
     this.inviteCodeToRoomId.set(inviteCode, roomId);
     this.userToRoom.set(hostUser.id, roomId);
 
-    // 保存到 KV
-    this.saveToKV().catch(console.error);
-
     log('info', `房间创建成功: ${roomId}, 邀请码: ${inviteCode}, 房主: ${hostUser.username}`);
     return room;
   }
@@ -143,9 +156,6 @@ export class RoomManager {
     room.users.set(user.id, user);
     user.roomId = roomId;
     this.userToRoom.set(user.id, roomId);
-
-    // 保存到 KV
-    this.saveToKV().catch(console.error);
 
     log('info', `用户 ${user.username} 加入房间 ${roomId}`);
     return room;

@@ -34,26 +34,6 @@ export class UserManager {
   }
 
   /**
-   * 创建新用户 (Cloudflare Worker version)
-   */
-  createCloudflareUser(userId: string, username: string): User {
-    const user: User = {
-      id: userId,
-      username: username.trim().slice(0, 20), // 限制用户名长度
-      socketId: userId,
-      roomId: null,
-      color: generateUserColor(),
-      lastActive: now(),
-      mousePosition: null,
-    };
-
-    this.users.set(userId, user);
-
-    log('info', `用户创建: ${user.username} (${userId})`);
-    return user;
-  }
-
-  /**
    * 获取用户
    */
   getUser(userId: string): User | undefined {
@@ -103,13 +83,6 @@ export class UserManager {
 
     log('info', `用户移除: ${user.username} (${userId})`);
     return user;
-  }
-
-  /**
-   * 删除用户 (alias for Cloudflare compatibility)
-   */
-  deleteUser(userId: string): User | undefined {
-    return this.removeUser(userId);
   }
 
   /**

@@ -124,6 +124,7 @@ export type ClientMessage =
   | { type: 'subscribeLogs' };
 
 export type ServerMessage =
+  | { type: 'authenticated'; userId: string; user: UserInfo; room: RoomInfo | null; users: UserInfo[] }
   | { type: 'authSuccess'; userId: string; inviteCode: string }
   | { type: 'authError'; error: string }
   | { type: 'roomCreated'; room: RoomInfo }
@@ -189,4 +190,5 @@ export interface ExtendedWebSocket extends WebSocket {
   isAlive: boolean;
   lastPing: number;
   isLogClient?: boolean;
+  pendingRoomId?: string; // 从 URL 查询参数解析的房间 ID
 }

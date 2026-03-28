@@ -17,8 +17,8 @@
     "allowSyntheticDefaultImports": true,
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
-    "types": ["@cloudflare/workers-types", "node"]
+    "types": ["node"]
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "src/index.ts", "src/websocketServer.ts"]
+  "exclude": ["node_modules", "dist"]
 }

@@ -31,3 +31,5 @@ coverage/
 .cache/
 temp/
 tmp/
+
+/src/generated/prisma

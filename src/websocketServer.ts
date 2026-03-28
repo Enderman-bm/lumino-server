@@ -14,20 +14,11 @@ import * as messageHandler from './handlers/messageHandler';
 const isDevMode = true; // 强制启用开发日志
 
 // 开发模式事件日志
+// 优化：减少序列化开销，只在需要时打印详细数据
 function logEvent(direction: 'RECV' | 'SEND', socketId: string, userId: string | null, message: any): void {
-  const timestamp = new Date().toISOString();
-  const userInfo = userId ? `user:${userId}` : 'unauthenticated';
-  const messageType = message.type || 'unknown';
-  
-  console.log(`[${timestamp}] [EVENT] ${direction} id:${socketId} ${userInfo} type:${messageType}`);
-  
-  // 打印完整消息内容以便调试
-  try {
-    const dataStr = JSON.stringify(message, null, 2);
-    console.log(`  Data: ${dataStr.length > 1000 ? dataStr.substring(0, 1000) + '... (truncated)' : dataStr}`);
-  } catch (e) {
-    console.log(`  Data: [Error serializing message]`);
-  }
+  // 只记录基本信息，避免昂贵的JSON序列化
+  const messageType = message?.type || 'unknown';
+  console.log(`[EVENT] ${direction} id:${socketId} type:${messageType}`);
 }
 
 // 存储socket到WebSocket的映射
@@ -35,6 +26,7 @@ const socketMap = new Map<string, ExtendedWebSocket>();
 
 /**
  * 广播消息给房间内所有用户（带实际WebSocket发送）
+ * 优化：异步发送，带背压检查
  */
 function broadcastToRoom(
   roomId: string,
@@ -45,32 +37,53 @@ function broadcastToRoom(
   if (!room) return;
 
   const messageStr = JSON.stringify(message);
+  const timestamp = Date.now();
 
-  for (const user of room.users.values()) {
-    if (excludeUserId && user.id === excludeUserId) continue;
+  // 使用setImmediate异步发送，避免阻塞事件循环
+  setImmediate(() => {
+    for (const user of room.users.values()) {
+      if (excludeUserId && user.id === excludeUserId) continue;
 
-    // 通过socketId找到WebSocket连接
-    const ws = socketMap.get(user.socketId);
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      // 开发模式：记录广播的消息
-      logEvent('SEND', ws.id, ws.userId, message);
-      ws.send(messageStr);
+      // 通过socketId找到WebSocket连接
+      const ws = socketMap.get(user.socketId);
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        // 背压检查：如果缓冲区过大，跳过或稍后发送
+        if ((ws as any).bufferedAmount > MAX_BUFFERED_AMOUNT) {
+          console.log(`[${new Date().toISOString()}] [WARN] Skipping message to ${ws.id}: buffer full`);
+          continue;
+        }
+
+        try {
+          ws.send(messageStr);
+        } catch (error) {
+          console.error(`[${new Date().toISOString()}] [ERROR] Failed to send to ${ws.id}:`, error);
+        }
+      }
     }
-  }
+  });
 }
 
 /**
  * 发送消息给特定用户
+ * 优化：带背压检查和错误处理
  */
 function sendToUser(ws: ExtendedWebSocket, message: ServerMessage): void {
-  if (ws.readyState === WebSocket.OPEN) {
-    // 开发模式：记录发送的消息
-    logEvent('SEND', ws.id, ws.userId, message);
-    const messageStr = JSON.stringify(message);
-    console.log(`[${new Date().toISOString()}] [DEBUG] SENDING to ${ws.id}: ${messageStr.substring(0, 500)}`);
-    ws.send(messageStr);
-  } else {
+  if (ws.readyState !== WebSocket.OPEN) {
     console.log(`[${new Date().toISOString()}] [ERROR] Cannot send to ${ws.id}: readyState=${ws.readyState}`);
+    return;
+  }
+
+  // 背压检查
+  if ((ws as any).bufferedAmount > MAX_BUFFERED_AMOUNT) {
+    console.log(`[${new Date().toISOString()}] [WARN] Buffer full for ${ws.id}, dropping message`);
+    return;
+  }
+
+  try {
+    const messageStr = JSON.stringify(message);
+    ws.send(messageStr);
+  } catch (error) {
+    console.error(`[${new Date().toISOString()}] [ERROR] Failed to send to ${ws.id}:`, error);
   }
 }
 
@@ -78,39 +91,42 @@ function sendToUser(ws: ExtendedWebSocket, message: ServerMessage): void {
  * 处理客户端消息
  */
 function handleMessage(ws: ExtendedWebSocket, data: string): void {
-  console.log(`[${new Date().toISOString()}] [DEBUG] RAW MESSAGE from ${ws.id}: ${data.substring(0, 500)}`);
+  // 记录原始消息（限制长度）
+  if (isDevMode && data.length < 10000) {
+    console.log(`[MSG] ${ws.id}: ${data.substring(0, 200)}${data.length > 200 ? '...' : ''}`);
+  }
   
   const message = safeJsonParse<ClientMessage>(data);
   
   if (!message || !message.type) {
-    console.log(`[${new Date().toISOString()}] [ERROR] Invalid message format from ${ws.id}`);
     sendToUser(ws, { type: 'error', error: '无效的消息格式' });
     return;
   }
   
-  console.log(`[${new Date().toISOString()}] [DEBUG] Parsed message type: ${message.type} from ${ws.id}`);
-  
   // 开发模式：记录接收到的消息
   logEvent('RECV', ws.id, ws.userId, message);
-
-  // 记录原始数据字符串的一部分，以确保解析没有屏蔽掉东西
-  if (isDevMode) {
-    console.log(`  Raw: ${data.length > 200 ? data.substring(0, 200) + '...' : data}`);
-  }
 
   const user = ws.userId ? userManager.getUser(ws.userId) : null;
 
   try {
     switch (message.type) {
       case 'auth': {
-        const response = messageHandler.handleAuth(ws, message.username);
+        const response = messageHandler.handleAuth(ws, message.username, ws.pendingRoomId);
         sendToUser(ws, response);
         
-        // 如果是认证成功，创建用户后重新获取
-        if (response.type === 'authSuccess') {
+        // 如果是认证成功
+        if (response.type === 'authenticated') {
           const newUser = userManager.getUser(response.userId);
-          if (newUser) {
-            // 更新messageHandler中的broadcast函数
+          if (newUser && response.room) {
+            // 用户已加入房间，更新 ws.roomId
+            ws.roomId = response.room.id;
+            
+            // 通知房间内其他用户有新用户加入
+            const joinMessage: ServerMessage = {
+              type: 'userJoined',
+              user: response.user,
+            };
+            broadcastToRoom(response.room.id, joinMessage, response.userId);
           }
         }
         break;
@@ -395,10 +411,14 @@ function applyNoteOperation(midiData: any, operation: any): void {
 /**
  * 创建WebSocket服务器
  */
+const MAX_MESSAGE_SIZE = 1024 * 1024; // 1MB max message size
+const MAX_BUFFERED_AMOUNT = 16 * 1024 * 1024; // 16MB backpressure threshold
+
 export function createWebSocketServer(server: Server): WebSocketServer {
   const wss = new WebSocketServer({ 
     server,
     path: '/ws',
+    maxPayload: MAX_MESSAGE_SIZE,
     perMessageDeflate: {
       zlibDeflateOptions: {
         chunkSize: 1024,
@@ -411,11 +431,11 @@ export function createWebSocketServer(server: Server): WebSocketServer {
       clientNoContextTakeover: true,
       serverNoContextTakeover: true,
       serverMaxWindowBits: 10,
-      concurrencyLimit: 10,
+      concurrencyLimit: 100,
     },
   });
 
-  // 心跳检测
+  // 心跳检测 - 调整为60秒以适应密集请求场景
   const interval = setInterval(() => {
     wss.clients.forEach((ws) => {
       const extWs = ws as ExtendedWebSocket;
@@ -446,7 +466,7 @@ export function createWebSocketServer(server: Server): WebSocketServer {
       extWs.isAlive = false;
       extWs.ping();
     });
-  }, 30000);
+  }, 60000);
 
   wss.on('close', () => {
     clearInterval(interval);
@@ -460,10 +480,24 @@ export function createWebSocketServer(server: Server): WebSocketServer {
     extWs.isAlive = true;
     extWs.lastPing = now();
 
+    // 解析 URL 中的 roomId 参数
+    if (req.url) {
+      try {
+        const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+        const roomId = url.searchParams.get('roomId');
+        if (roomId) {
+          extWs.pendingRoomId = roomId;
+          console.log(`[CONN] Pending roomId from URL: ${roomId}`);
+        }
+      } catch (e) {
+        // URL 解析失败，忽略
+      }
+    }
+
     socketMap.set(extWs.id, extWs);
 
     const clientIp = req.socket.remoteAddress || 'unknown';
-    log('info', `新连接: ${extWs.id} from ${clientIp}`);
+    console.log(`[CONN] New connection: ${extWs.id} from ${clientIp}`);
 
     // 心跳响应
     extWs.on('pong', () => {
@@ -474,10 +508,14 @@ export function createWebSocketServer(server: Server): WebSocketServer {
     // 消息处理
     extWs.on('message', (data: Buffer) => {
       try {
-        const messageStr = data.toString('utf-8');
-        if (isDevMode) {
-          console.log(`[${new Date().toISOString()}] [DEBUG] RAW MESSAGE RECV id:${extWs.id}: ${messageStr.substring(0, 500)}`);
+        // 消息大小检查
+        if (data.length > MAX_MESSAGE_SIZE) {
+          console.log(`[${new Date().toISOString()}] [WARN] Message too large from ${extWs.id}: ${data.length} bytes`);
+          sendToUser(extWs, { type: 'error', error: 'Message too large' });
+          return;
         }
+
+        const messageStr = data.toString('utf-8');
         handleMessage(extWs, messageStr);
       } catch (error) {
         log('error', '处理消息失败:', error);
@@ -486,27 +524,30 @@ export function createWebSocketServer(server: Server): WebSocketServer {
 
     // 连接关闭
     extWs.on('close', (code: number, reason: Buffer) => {
-      if (isDevMode) {
-        console.log(`[${new Date().toISOString()}] [DEBUG] CONNECTION CLOSED id:${extWs.id} code: ${code} reason: ${reason.toString()}`);
-      }
-      log('info', `连接关闭: ${extWs.id}, code: ${code}, reason: ${reason.toString()}`);
+      console.log(`[CONN] Closed: ${extWs.id}, code: ${code}`);
       socketMap.delete(extWs.id);
 
-      // 清理用户和房间
+      // 清理用户和房间 - 使用setImmediate避免阻塞
       if (extWs.userId) {
-        const user = userManager.getUser(extWs.userId);
-        if (user) {
-          const room = roomManager.getRoomByUser(user.id);
-          if (room) {
-            const leaveMessage: ServerMessage = {
-              type: 'userLeft',
-              userId: user.id,
-            };
-            broadcastToRoom(room.id, leaveMessage, user.id);
+        setImmediate(() => {
+          try {
+            const user = userManager.getUser(extWs.userId!);
+            if (user) {
+              const room = roomManager.getRoomByUser(user.id);
+              if (room) {
+                const leaveMessage: ServerMessage = {
+                  type: 'userLeft',
+                  userId: user.id,
+                };
+                broadcastToRoom(room.id, leaveMessage, user.id);
+              }
+              roomManager.leaveRoom(user);
+              userManager.removeUser(user.id);
+            }
+          } catch (error) {
+            console.error(`[CONN] Error cleaning up ${extWs.id}:`, error);
           }
-          roomManager.leaveRoom(user);
-          userManager.removeUser(user.id);
-        }
+        });
       }
     });
 

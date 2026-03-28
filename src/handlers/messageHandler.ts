@@ -47,7 +47,7 @@ export function sendToUser(ws: ExtendedWebSocket, message: ServerMessage): void 
 /**
  * 处理认证消息
  */
-export function handleAuth(ws: ExtendedWebSocket, username: string): ServerMessage {
+export function handleAuth(ws: ExtendedWebSocket, username: string, roomId?: string): ServerMessage {
   const validation = userManager.validateUsername(username);
   
   if (!validation.valid) {
@@ -55,12 +55,47 @@ export function handleAuth(ws: ExtendedWebSocket, username: string): ServerMessa
   }
 
   const user = userManager.createUser(ws, username);
-  const inviteCode = generateInviteCode();
+  
+  // 构建用户信息
+  const userInfo = {
+    id: user.id,
+    username: user.username,
+    color: user.color,
+    isHost: false,
+  };
 
+  // 如果提供了 roomId，尝试加入或创建房间
+  if (roomId) {
+    try {
+      const room = roomManager.getOrCreateRoom(roomId, user);
+      userInfo.isHost = room.hostId === user.id;
+      return {
+        type: 'authenticated',
+        userId: user.id,
+        user: userInfo,
+        room: {
+          id: room.id,
+          inviteCode: room.inviteCode,
+          name: room.name,
+          hostId: room.hostId,
+          userCount: room.users.size,
+          maxUsers: room.maxUsers,
+        },
+        users: roomManager.getUsersInfo(room),
+      };
+    } catch (error) {
+      // 加入房间失败（如房间已满），返回基本认证信息
+      log('warn', `用户 ${username} 加入房间 ${roomId} 失败: ${error}`);
+    }
+  }
+
+  // 没有房间或加入失败，返回基本认证信息
   return {
-    type: 'authSuccess',
+    type: 'authenticated',
     userId: user.id,
-    inviteCode: inviteCode, // 返回一个邀请码供用户创建房间使用
+    user: userInfo,
+    room: null,
+    users: [],
   };
 }
 

@@ -7,7 +7,10 @@ import { networkInterfaces } from 'os';
 import { createWebSocketServer } from './websocketServer';
 import { roomManager } from './roomManager';
 import { userManager } from './userManager';
-import { log } from './utils';
+import { log, generateInviteCode, generateId } from './utils';
+import { handleCloudStorageRoute } from './handlers/cloudStorageHandler';
+import { handleCloudUIRoute } from './handlers/cloudStorageUI';
+import { authManager } from './authManager';
 
 // 配置
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -23,12 +26,29 @@ if (isDevMode) {
 const httpServer = createServer((req, res) => {
   // 设置CORS头
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Max-Age', '86400');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(200);
     res.end();
+    return;
+  }
+
+  // 云存储Web UI路由
+  if (req.url?.startsWith('/cloud')) {
+    if (handleCloudUIRoute(req, res)) {
+      return;
+    }
+  }
+
+  // 云存储API路由
+  if (req.url?.startsWith('/api/auth/') || 
+      req.url?.startsWith('/api/files') || 
+      req.url?.startsWith('/api/admin/') ||
+      req.url === '/api/stats') {
+    handleCloudStorageRoute(req, res);
     return;
   }
 
@@ -614,6 +634,87 @@ const httpServer = createServer((req, res) => {
     return;
   }
 
+  // API: 创建房间
+  if (req.url === '/api/room/create' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body);
+        const { name, hostId, hostName } = data;
+
+        if (!name) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing required field: name' }));
+          return;
+        }
+
+        // 生成邀请码
+        const inviteCode = generateInviteCode();
+        const roomId = generateId();
+
+        // 获取服务器地址
+        const interfaces = networkInterfaces();
+        let serverIp = 'localhost';
+        for (const name of Object.keys(interfaces)) {
+          const iface = interfaces[name];
+          if (!iface) continue;
+          for (const config of iface) {
+            if (config.family === 'IPv4' && !config.internal) {
+              serverIp = config.address;
+              break;
+            }
+          }
+        }
+
+        const protocol = req.headers['x-forwarded-proto'] === 'https' ? 'wss:' : 'ws:';
+        const host = req.headers.host || `${serverIp}:${PORT}`;
+        const webSocketUrl = `${protocol}//${host}/ws?roomId=${inviteCode}`;
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          success: true,
+          room: {
+            id: roomId,
+            inviteCode,
+            name,
+            hostId: hostId || generateId(),
+          },
+          webSocketUrl,
+        }));
+      } catch (error) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+      }
+    });
+    return;
+  }
+
+  // API: 获取房间信息
+  if (req.url?.startsWith('/api/room/') && req.url.endsWith('/info') && req.method === 'GET') {
+    const parts = req.url.split('/');
+    const roomId = parts[3];
+    
+    const room = roomManager.getRoomByInviteCode(roomId) || roomManager.getRoom(roomId);
+    
+    if (!room) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Room not found' }));
+      return;
+    }
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      id: room.id,
+      inviteCode: room.inviteCode,
+      name: room.name,
+      hostId: room.hostId,
+      userCount: room.users.size,
+      maxUsers: room.maxUsers,
+    }));
+    return;
+  }
+
   // 404
   res.writeHead(404, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ error: 'Not Found' }));
@@ -658,8 +759,20 @@ export function broadcastLog(level: string, message: string, data?: any) {
 const wss = createWebSocketServer(httpServer);
 (global as any).wss = wss;
 
+// 初始化云存储系统
+async function initializeCloudStorage() {
+  try {
+    await authManager.initializeAdmin();
+    log('info', '云存储系统初始化完成');
+    log('info', '管理员账户: admin / 初始密码: 123456');
+    log('info', '云存储Web UI: http://' + HOST + ':' + PORT + '/cloud');
+  } catch (error) {
+    log('error', '云存储系统初始化失败', { error });
+  }
+}
+
 // 启动服务器
-httpServer.listen(PORT, HOST, () => {
+httpServer.listen(PORT, HOST, async () => {
   log('info', `=================================`);
   log('info', `Lumino 协作服务器已启动`);
   if (isDevMode) {
@@ -667,7 +780,11 @@ httpServer.listen(PORT, HOST, () => {
   }
   log('info', `HTTP: http://${HOST}:${PORT}`);
   log('info', `WebSocket: ws://${HOST}:${PORT}/ws`);
+  log('info', `云存储: http://${HOST}:${PORT}/cloud`);
   log('info', `=================================`);
+
+  // 初始化云存储
+  await initializeCloudStorage();
 });
 
 // 优雅关闭
