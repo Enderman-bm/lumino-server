@@ -217,23 +217,32 @@ function handleMessage(ws: ExtendedWebSocket, data: string): void {
       }
 
       case 'noteBatch': {
-        if (!user) return;
+        console.log(`[noteBatch] 收到 noteBatch, user=${user ? user.id : null}, wsId=${ws.id}`);
+        if (!user) {
+          console.log(`[noteBatch] 拒绝: 用户未认证, ws.userId=${ws.userId}`);
+          return;
+        }
         
         const room = roomManager.getRoomByUser(user.id);
-        if (room) {
-          // 更新项目状态
-          if (room.projectState.midiData) {
-            applyNoteOperation(room.projectState.midiData, message.notes);
-            roomManager.updateProjectState(room.id, {}, user.id);
-          }
-          
-          const updateMessage: ServerMessage = {
-            type: 'noteBatchUpdate',
-            userId: user.id,
-            operation: message.notes,
-          };
-          broadcastToRoom(room.id, updateMessage, user.id);
+        if (!room) {
+          console.log(`[noteBatch] 拒绝: 用户 ${user.id} 不在任何房间`);
+          return;
         }
+        console.log(`[noteBatch] 处理中, room=${room.id}, action=${message.notes?.action}`);
+        
+        // 更新项目状态
+        if (room.projectState.midiData) {
+          applyNoteOperation(room.projectState.midiData, message.notes);
+          roomManager.updateProjectState(room.id, {}, user.id);
+        }
+        
+        const updateMessage: ServerMessage = {
+          type: 'noteBatchUpdate',
+          userId: user.id,
+          operation: message.notes,
+        };
+        broadcastToRoom(room.id, updateMessage, user.id);
+        console.log(`[noteBatch] 已广播 noteBatchUpdate 到房间 ${room.id}`);
         break;
       }
 
