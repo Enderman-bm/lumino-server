@@ -376,12 +376,23 @@ function applyNoteOperation(midiData: any, operation: any): void {
       }
       break;
 
-    case 'move':
+    case 'move': {
+      const tickOffset = operation.tickOffset || 0;
+      const keyOffset = operation.keyOffset || 0;
       for (const note of operation.notes) {
-        note.tick += operation.tickOffset || 0;
-        note.key += operation.keyOffset || 0;
+        const track = midiData.tracks[note.trackIndex];
+        if (track) {
+          const index = track.notes.findIndex(
+            (n: any) => Math.abs(n.tick - note.tick) < 1 && n.key === note.key
+          );
+          if (index !== -1) {
+            track.notes[index].tick += tickOffset;
+            track.notes[index].key += keyOffset;
+          }
+        }
       }
       break;
+    }
 
     case 'copy':
       // 复制操作不需要修改服务器状态，只是客户端操作
